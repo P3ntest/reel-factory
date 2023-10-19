@@ -1,0 +1,40 @@
+version: '3.8'
+
+services:
+  rabbitmq:
+    image: rabbitmq:3-management
+    ports:
+      - 5672:5672
+      - 8080:15672
+  mongodb:
+    image: mongo:latest
+    volumes:
+      - mongo_data:/data/db
+    ports:
+      - 27017:27017
+  mongo-express:
+    image: mongo-express
+    ports:
+      - 8081:8081
+    environment:
+      - ME_CONFIG_MONGODB_SERVER=mongodb
+      - ME_CONFIG_MONGODB_PORT=27017
+  minio:
+    image: minio/minio
+    ports:
+      - 9000:9000
+      - 9001:9001
+    command: server /data --console-address ":9001"
+    volumes:
+      - minio_data:/data
+  mimic:
+    image: mycroftai/mimic3
+    ports:
+      - 59125:59125
+    volumes:
+      - mimic_data:/home/mimic3/.local/share/mycroft/mimic3
+
+volumes:
+  mongo_data:
+  minio_data:
+  mimic_data:
