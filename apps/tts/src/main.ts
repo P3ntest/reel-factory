@@ -2,12 +2,17 @@ import amqp from 'amqplib';
 import { MongoClient, ObjectId } from 'mongodb';
 import axios from 'axios';
 import * as Minio from 'minio';
+import getAudioDurationInSeconds from 'get-audio-duration';
+import { Readable } from 'stream';
+import { writeFile } from 'fs/promises';
+import { write } from 'fs';
 
 async function main() {
   // listen on the "tts" queue
   const amqpClient = await amqp.connect(process.env.RABBITMQ_URL);
   const channel = await amqpClient.createChannel();
   await channel.assertQueue('tts');
+  await channel.assertQueue('renderer');
 
   const dbClient = new MongoClient(process.env.MONGO_URL);
   await dbClient.connect();
@@ -26,9 +31,8 @@ async function main() {
     console.log('Bucket already exists');
   });
 
-  channel.consume('tts', async (message) => {
-    const id = message.content.toString();
-    console.log(`[tts] Received message with id ${id}`);
+  async function ttsSingle(id: string) {
+    console.log(`[tts] TTSing with id ${id}`);
 
     const doc = await db.collection('tts').findOne({ _id: new ObjectId(id) });
 
@@ -52,6 +56,14 @@ async function main() {
       },
     });
 
+    // get duration
+    // save file to disk temporarily
+    await writeFile('temp.wav', res.data);
+    const duration = await getAudioDurationInSeconds('temp.wav');
+    await writeFile('temp.wav', '');
+
+    console.log(`[tts] Duration is ${duration}`);
+
     // upload file to S3
 
     const buffer = Buffer.from(res.data);
@@ -68,21 +80,52 @@ async function main() {
 
     // update document in MongoDB
 
-    await db.collection('tts').updateOne(
-      { _id: id },
+    const update = await db.collection('tts').updateMany(
+      { _id: new ObjectId(id) },
       {
         $set: {
           status: 'done',
           filename,
+          duration,
         },
       }
     );
 
-    console.log(`[tts] Document updated with id ${id}`);
+    console.log(
+      `[tts] ${update.modifiedCount} documents updated with id ${id}`
+    );
+  }
 
-    // acknowledge message
+  channel.consume('tts', async (message) => {
+    const videoDocId = message.content.toString();
+
+    console.log(`[tts] Received message with id ${videoDocId}`);
+
+    const videoDoc = await db
+      .collection('video')
+      .findOne({ _id: new ObjectId(videoDocId) });
+
+    if (!videoDoc) {
+      console.log(`[tts] Could not find video document with id ${videoDocId}`);
+      return;
+    }
+
+    console.log(`[tts] Video document found with id ${videoDocId}`);
+
+    const ttsIds = videoDoc.ttsIds;
+
+    console.log(`[tts] There are ${ttsIds.length} tts documents to tts`);
+
+    await Promise.all(
+      ttsIds.map(async (ttsId: string) => {
+        await ttsSingle(ttsId);
+      })
+    );
+
+    console.log(`[tts] All tts documents ttsed`);
 
     channel.ack(message);
+    channel.sendToQueue('renderer', Buffer.from(videoDocId.toString()));
   });
 
   console.log('[tts] Ready');
