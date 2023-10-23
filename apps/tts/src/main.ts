@@ -53,7 +53,7 @@ async function main() {
     console.log(`[tts] Calling Mimic with text ${text}`);
 
     const res = await axios
-      .post(process.env.MIMIC_URL, text, {
+      .post(process.env.MIMIC_URL + `?lengthScale=0.7`, text, {
         responseType: 'arraybuffer',
         headers: {
           'Content-Type': 'text/plain',
