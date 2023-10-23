@@ -6,6 +6,9 @@ import getAudioDurationInSeconds from 'get-audio-duration';
 import { Readable } from 'stream';
 import { writeFile } from 'fs/promises';
 import { write } from 'fs';
+import axiosRetry from 'axios-retry';
+
+axiosRetry(axios, { retries: 3 });
 
 async function main() {
   // listen on the "tts" queue
@@ -32,7 +35,7 @@ async function main() {
   });
 
   async function ttsSingle(id: string) {
-    console.log(`[tts] TTSing with id ${id}`);
+    // console.log(`[tts] TTSing with id ${id}`);
 
     const doc = await db.collection('tts').findOne({ _id: new ObjectId(id) });
 
@@ -41,7 +44,7 @@ async function main() {
       return;
     }
 
-    console.log(`[tts] Document found with id ${id}`);
+    // console.log(`[tts] Document found with id ${id}`);
 
     const text = doc.text;
 
@@ -49,20 +52,30 @@ async function main() {
 
     console.log(`[tts] Calling Mimic with text ${text}`);
 
-    const res = await axios.post(process.env.MIMIC_URL, text, {
-      responseType: 'arraybuffer',
-      headers: {
-        'Content-Type': 'text/plain',
-      },
-    });
+    const res = await axios
+      .post(process.env.MIMIC_URL, text, {
+        responseType: 'arraybuffer',
+        headers: {
+          'Content-Type': 'text/plain',
+        },
+      })
+      .catch((err) => {
+        console.error('[tts] error with ', text.toString(), err.response.data);
+      });
 
+    if (!res) {
+      console.log(`[tts] Mimic responded with error`);
+      return;
+    }
+
+    console.log(`[tts] Mimic responded with status ${res.status}`);
     // get duration
     // save file to disk temporarily
     await writeFile('temp.wav', res.data);
     const duration = await getAudioDurationInSeconds('temp.wav');
     await writeFile('temp.wav', '');
 
-    console.log(`[tts] Duration is ${duration}`);
+    // console.log(`[tts] Duration is ${duration}`);
 
     // upload file to S3
 
@@ -76,7 +89,7 @@ async function main() {
       'Content-Type': 'audio/wav',
     });
 
-    console.log(`[tts] File uploaded to S3 with name ${filename}`);
+    // console.log(`[tts] File uploaded to S3 with name ${filename}`);
 
     // update document in MongoDB
 

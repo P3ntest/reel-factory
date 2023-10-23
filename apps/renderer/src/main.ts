@@ -6,7 +6,7 @@ import { WebpackOverrideFn } from '@remotion/bundler';
 import amqp from 'amqplib';
 import { MongoClient, ObjectId } from 'mongodb';
 import * as Minio from 'minio';
-import { unlink, writeFile } from 'fs/promises';
+import { mkdir, unlink, writeFile } from 'fs/promises';
 import { existsSync, unlinkSync } from 'fs';
 
 const webpackOverride: WebpackOverrideFn = (currentConfiguration) => {
@@ -58,12 +58,25 @@ async function main() {
       .find({ _id: { $in: videoDoc.ttsIds } })
       .toArray();
 
-    const publicPath = path.resolve('./apps/renderer/video/public');
+    const publicPath = path.resolve('./apps/renderer/video/public/temp');
+    // ensure folder exists
+    await mkdir(publicPath, { recursive: true }).catch(() => {
+      // folder already exists
+    });
+
     // download files and put them in the public folder
+
+    console.log(`[renderer] Downloading files for video with id ${id}`);
     await Promise.all(
       ttsDocs.map(async (doc) => {
         const filename = `${doc._id}.wav`;
-        const buffer = await minio.getObject('tts', filename);
+        const buffer = await minio.getObject('tts', filename).catch((err) => {
+          console.log(`[renderer] Could not find file ${filename}`);
+          return;
+        });
+        if (!buffer) {
+          return;
+        }
         return await writeFile(path.resolve(publicPath, filename), buffer);
       })
     );
@@ -76,29 +89,42 @@ async function main() {
       })),
     };
 
+    console.log(`[renderer] Bundling video with id ${id}`);
     const bundleLocation = await bundle({
       entryPoint: path.resolve('./apps/renderer/video/src/index.ts'),
       // If you have a Webpack override, make sure to add it here
       webpackOverride,
     });
 
+    console.log(`[renderer] Rendering video with id ${id}`);
     const composition = await selectComposition({
       serveUrl: bundleLocation,
       id: compositionId,
       inputProps,
     });
 
+    let lastProgress = 0;
+
     const media = await renderMedia({
       composition,
       serveUrl: bundleLocation,
       codec: 'h264',
       inputProps,
+      onProgress: (p) => {
+        if (p.progress - lastProgress > 0) {
+          console.log(
+            ((p.progress * 100) | 0) + '%, frame ' + p.renderedFrames
+          );
+          lastProgress = p.progress;
+        }
+      },
     });
 
     const buffer = media.buffer;
 
     const filename = `${id}.mp4`;
 
+    console.log(`[renderer] Uploading video with id ${id} to S3`);
     await minio.putObject('videos', filename, buffer, buffer.length, {
       'Content-Type': 'video/mp4',
     });
@@ -115,14 +141,17 @@ async function main() {
       }
     );
 
-    console.log(`[renderer] Video rendered with id ${id}`);
+    console.log(`[renderer] ✅ Video rendered with id ${id}`);
 
     // delete files from public folder
     // delete wav files from public folder
+    console.log(`[renderer] Deleting files for video with id ${id}`);
     await Promise.all(
       ttsDocs.map(async (doc) => {
         const filename = `${doc._id}.wav`;
-        return await unlink(path.resolve(publicPath, filename));
+        return await unlink(path.resolve(publicPath, filename)).catch(() => {
+          // file does not exist
+        });
       })
     );
 

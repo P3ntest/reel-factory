@@ -2,6 +2,7 @@ import { LegalHoldStatus } from './../../../node_modules/minio/dist/main/minio.d
 import express from 'express';
 import { MongoClient } from 'mongodb';
 import amqp from 'amqplib';
+import { splitLines } from './lines';
 const host = process.env.HOST ?? 'localhost';
 const port = process.env.PORT ? Number(process.env.PORT) : 3000;
 
@@ -18,12 +19,18 @@ async function main() {
   await channel.assertQueue('tts');
 
   app.post('/video', async (req, res) => {
-    if (!req.body.lines) {
+    if (!req.body.lines && !req.body.text) {
       return res.status(400).json({ error: 'Missing lines' });
     }
 
+    let lines = req.body.lines;
+
+    if (req.body.text) {
+      lines = splitLines(req.body.text);
+    }
+
     const ttsIds = await Promise.all(
-      req.body.lines.map(async (line: string) => {
+      lines.map(async (line: string) => {
         const doc = await db.collection('tts').insertOne({
           createdAt: new Date(),
           text: line,
