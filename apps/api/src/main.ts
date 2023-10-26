@@ -3,12 +3,14 @@ import express from 'express';
 import { MongoClient } from 'mongodb';
 import amqp from 'amqplib';
 import { splitLines } from './lines';
+import { execArgv } from 'process';
 const host = process.env.HOST ?? 'localhost';
 const port = process.env.PORT ? Number(process.env.PORT) : 3000;
 
 async function main() {
   const app = express();
   app.use(express.json());
+  app.use(express.text());
 
   const dbClient = new MongoClient(process.env.MONGO_URL);
   await dbClient.connect();
@@ -19,11 +21,13 @@ async function main() {
   await channel.assertQueue('tts');
 
   app.post('/video', async (req, res) => {
-    if (!req.body.lines && !req.body.text) {
-      return res.status(400).json({ error: 'Missing lines' });
-    }
+    // if (!req.body.lines && !req.body.text) {
+    //   return res.status(400).json({ error: 'Missing lines' });
+    // }
 
-    let lines = req.body.lines;
+    console.log(req.body);
+
+    let lines = req.body.lines ?? splitLines(req.body);
 
     if (req.body.text) {
       lines = splitLines(req.body.text);

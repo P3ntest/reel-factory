@@ -34,6 +34,7 @@ export const RemotionRoot: React.FC = () => {
 							duration: 2,
 						},
 					],
+					stockI: 1,
 				}}
 			/>
 		</>

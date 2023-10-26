@@ -38,6 +38,9 @@ async function main() {
   // The composition you want to render
   const compositionId = 'MyComp';
 
+  //make sure it only runs one at a time
+  await channel.prefetch(1);
+
   channel.consume('renderer', async (msg) => {
     const id = msg.content.toString();
     console.log(`[renderer] Received message with id ${id}`);
@@ -87,6 +90,7 @@ async function main() {
         text: doc.text,
         filename: doc.filename,
       })),
+      stockI: Math.floor(Math.random() * 3),
     };
 
     console.log(`[renderer] Bundling video with id ${id}`);
