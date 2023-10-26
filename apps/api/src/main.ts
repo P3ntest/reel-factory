@@ -19,6 +19,15 @@ async function main() {
   const amqpClient = await amqp.connect(process.env.RABBITMQ_URL);
   const channel = await amqpClient.createChannel();
   await channel.assertQueue('tts');
+  await channel.assertQueue('instagram');
+
+  app.post('/upload/:id', async (req, res) => {
+    await channel.sendToQueue(
+      'instagram',
+      Buffer.from(req.params.id.toString())
+    );
+    return res.json({ id: req.params.id });
+  });
 
   app.post('/video', async (req, res) => {
     // if (!req.body.lines && !req.body.text) {
