@@ -17,6 +17,7 @@ async function main() {
   const amqpClient = await amqp.connect(process.env.RABBITMQ_URL);
   const channel = await amqpClient.createChannel();
   await channel.assertQueue('renderer');
+  await channel.assertQueue('instagram');
 
   const dbClient = new MongoClient(process.env.MONGO_URL);
   await dbClient.connect();
@@ -160,6 +161,11 @@ async function main() {
     );
 
     channel.ack(msg);
+
+    await channel.sendToQueue(
+      'instagram',
+      Buffer.from(videoDoc._id.toString())
+    );
   });
 
   console.log('[renderer] Ready');
